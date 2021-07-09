@@ -145,6 +145,7 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
     throw new Error('gas price for TX is smaller than the minimum gas price')
   }
 
+  // precalculated hashIdentifier: keccak256(abi.encodePacked("StableToken"))
   const getAddressIdentifierHash = 
     toBuffer("0xa676d30f91cbc454bebc9ca2df3e4a03df04d387728c3c700f40e4f04bdb298f");
   const fetchingStableTokenOpts = {
@@ -172,7 +173,7 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
     const balanceResult = await this.runCall(balanceOpts); // value in wei
 
     // Ensure that tx is not a call
-    if (new BN(tx.value).gt(new BN(0)) && new BN(balanceResult.execResult.returnValue).lt(feeVal)) {
+    if (new BN(balanceResult.execResult.returnValue).lt(feeVal)) {
         throw new Error('not enough funds to pay transaction fee')
     }
 
@@ -184,8 +185,8 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
       gasLimit: toBuffer(gasLimit),
       gasPrice: tx.gasPrice
     }
-    const result = await this.runCall(opts)
-    gasUsed.add(result.gasUsed)
+    const result = await this.runCall(opts);
+    gasUsed = gasUsed.add(result.gasUsed);
   } else {
     fromAccount.balance = toBuffer(
       new BN(fromAccount.balance).sub(feeVal),
@@ -250,7 +251,7 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
       gasPrice: tx.gasPrice
     }
     const result = await this.runCall(opts)
-    results.gasUsed.add(result.gasUsed)
+    results.gasUsed = results.gasUsed.add(result.gasUsed);
   } else {
     // Update sender's balance
     fromAccount = await state.getAccount(tx.getSenderAddress())
