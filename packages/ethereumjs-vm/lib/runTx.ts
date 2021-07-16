@@ -10,6 +10,8 @@ import TxContext from './evm/txContext'
 
 const Block = require('ethereumjs-block')
 
+const REGISTRY_CONTRACT_ADDRESS = "0x000000000000000000000000000000000000ce10";
+
 /**
  * Options for the `runTx` method.
  */
@@ -143,8 +145,23 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
     throw new Error('gas price for TX is smaller than the minimum gas price')
   }
 
+  // precalculated hashIdentifier: keccak256(abi.encodePacked("StableToken"))
+  const getAddressIdentifierHash = 
+    toBuffer("0xa676d30f91cbc454bebc9ca2df3e4a03df04d387728c3c700f40e4f04bdb298f");
+  const fetchingStableTokenOpts = {
+    to: toBuffer(REGISTRY_CONTRACT_ADDRESS),
+    caller: zeros(32), // call as root
+    data: getEncodedAbi("dd927233", [getAddressIdentifierHash]),
+    gasLimit: toBuffer(gasLimit),
+    gasPrice: tx.gasPrice
+  }
+  const fetchingStableTokenResult = await this.runCall(fetchingStableTokenOpts); // value in wei
+  const stableTokenAddress = fetchingStableTokenResult.execResult.returnValue
+                              .toString("hex")
+                              .slice(-40);
+  gasUsed = gasUsed.add(fetchingStableTokenResult.gasUsed);
   // pay fees
-  if (tx.feeCurrency?.toString('hex') === '10a736a7b223f1fe1050264249d1abb975741e75') {
+  if (tx.feeCurrency?.toString('hex') === stableTokenAddress) {
     // TODO (important): check the balance and error out if there arent enough funds
     const balanceOpts = {
       to: tx.feeCurrency,
@@ -156,7 +173,7 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
     const balanceResult = await this.runCall(balanceOpts); // value in wei
 
     // Ensure that tx is not a call
-    if (new BN(tx.value).gt(new BN(0)) && new BN(balanceResult.execResult.returnValue).lt(feeVal)) {
+    if (new BN(balanceResult.execResult.returnValue).lt(feeVal)) {
         throw new Error('not enough funds to pay transaction fee')
     }
 
@@ -168,8 +185,8 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
       gasLimit: toBuffer(gasLimit),
       gasPrice: tx.gasPrice
     }
-    const result = await this.runCall(opts)
-    gasUsed.add(result.gasUsed)
+    const result = await this.runCall(opts);
+    gasUsed = gasUsed.add(result.gasUsed);
   } else {
     fromAccount.balance = toBuffer(
       new BN(fromAccount.balance).sub(feeVal),
@@ -215,7 +232,7 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
   }
   results.amountSpent = results.gasUsed.mul(new BN(tx.gasPrice))
 
-  if (tx.feeCurrency?.toString('hex') === '10a736a7b223f1fe1050264249d1abb975741e75') {
+  if (tx.feeCurrency?.toString('hex') === stableTokenAddress) {
     // call creditGasFees
     const opts = {
       to: tx.feeCurrency,
@@ -234,7 +251,7 @@ async function _runTx(this: VM, opts: RunTxOpts): Promise<RunTxResult> {
       gasPrice: tx.gasPrice
     }
     const result = await this.runCall(opts)
-    results.gasUsed.add(result.gasUsed)
+    results.gasUsed = results.gasUsed.add(result.gasUsed);
   } else {
     // Update sender's balance
     fromAccount = await state.getAccount(tx.getSenderAddress())

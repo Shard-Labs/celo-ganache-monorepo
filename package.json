@@ -2,7 +2,8 @@
   "name": "root",
   "private": true,
   "scripts": {
-    "build:lerna": "npx lerna run build"
+    "build:lerna": "npx lerna run build",
+    "test": "./test.sh"
   },
   "devDependencies": {
     "lerna": "^4.0.0"
